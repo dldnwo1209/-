@@ -31,8 +31,7 @@ def save_data(config_df, req_df):
     config_df.to_csv(DB_CONFIG, index=False)
     req_df.to_csv(LOG_FILE, index=False)
 
-# 💡 화면 점멸(Flash) 이펙트 함수
-def trigger_flash_effect(msg="행정 처리가 완료되었습니다."):
+def trigger_flash_effect(msg="처리가 완료되었습니다."):
     st.markdown("""
         <style>
         @keyframes flash { 0% { background-color: transparent; } 50% { background-color: rgba(255, 255, 255, 0.2); } 100% { background-color: transparent; } }
@@ -73,14 +72,13 @@ user_role = st.session_state.auth_role
 cfg = st.session_state.config
 all_depts = [d for d in cfg['항목'].tolist() if d not in ['학급총액', '복지금재원']]
 
-# 4. 역할별 맞춤형 대시보드 및 로직
+# 4. 역할별 행정 로직
 
 # [A] 교사 모드: 전체 예산 통제
 if user_role == "교사":
     st.header("👨‍🏫 교사 관리")
     total_val = cfg[cfg['항목'] == '학급총액']['금액'].values[0]
     st.metric("💰 현재 설정된 학급 총액", f"{int(total_val):,}원")
-    
     new_total = st.number_input("학급 총 예산 수정", value=int(total_val), step=1000)
     if st.button("💾 총액 확정"):
         cfg.loc[cfg['항목'] == '학급총액', '금액'] = float(new_total)
@@ -88,7 +86,7 @@ if user_role == "교사":
         trigger_flash_effect("학급 총액 설정 완료")
         st.rerun()
 
-# [B] 총무 모드: 배정 현황 중심 대시보드
+# [B] 총무 모드: 배정 잔액 집중형 대시보드
 elif user_role == "총무":
     st.header("👩‍💼 총무 행정 시스템")
     total_budget = cfg[cfg['항목'] == '학급총액']['금액'].values[0]
@@ -96,25 +94,21 @@ elif user_role == "총무":
     assigned_sum = cfg[cfg['항목'].isin(all_depts)]['금액'].sum()
     available = total_budget - assigned_sum - wf_fund
     
-    # 총무 맞춤 대시보드
-    c1, c2 = st.columns(2)
-    c1.metric("⚖️ 배정 가능 잔액", f"{int(available):,}원")
-    c2.metric("✨ 가용 복지금", f"{int(wf_fund):,}원")
-    
+    st.metric("⚖️ 배정 가능 잔액 (복지금 제외)", f"{int(available):,}원", f"총 예산: {int(total_budget):,}원")
     st.divider()
-    target = st.selectbox("예산 편성 부처 선택", all_depts)
     
+    target = st.selectbox("예산 편성 부처 선택", all_depts)
     if target == "봉사부":
         st.markdown('<div class="welfare-card">', unsafe_allow_html=True)
-        st.subheader("🍃 봉사부 전용 예산 관리")
+        st.subheader("🍃 봉사부 운영비 및 복지금 배정")
         curr_op = cfg.loc[cfg['항목'] == '봉사부', '금액'].values[0]
         v1 = st.number_input("봉사부 운영비 (부서 활동용)", value=int(curr_op), step=1000)
-        v2 = st.number_input("복지금 재원 (벌금 감면용)", value=int(wf_fund), step=1000)
-        if st.button("🗳️ 봉사부 모든 예산 확정"):
+        v2 = st.number_input("복지금 재원 (벌금 감면용 공금)", value=int(wf_fund), step=1000)
+        if st.button("🗳️ 봉사부 이중 예산 확정"):
             cfg.loc[cfg['항목'] == '봉사부', '금액'] = float(v1)
             cfg.loc[cfg['항목'] == '복지금재원', '금액'] = float(v2)
             save_data(cfg, st.session_state.requests)
-            trigger_flash_effect("봉사부 이중 예산 편성 완료")
+            trigger_flash_effect("봉사부 예산 편성 완료")
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     else:
@@ -126,7 +120,6 @@ elif user_role == "총무":
             trigger_flash_effect(f"{target} 예산 업데이트")
             st.rerun()
 
-    # 결재 승인 섹션
     st.subheader("📝 결재 대기")
     pending = st.session_state.requests[st.session_state.requests['상태'] == '대기']
     for i, r in pending.iterrows():
@@ -134,32 +127,30 @@ elif user_role == "총무":
             st.session_state.requests.at[i, '상태'] = '승인'
             cfg.loc[cfg['항목'] == r['부처명'], '지출액'] += r['금액']
             save_data(cfg, st.session_state.requests)
-            trigger_flash_effect("지출 승인 완료")
-            st.rerun()
+            trigger_flash_effect("지출 승인 완료"); st.rerun()
 
-# [C] 부장 모드: 본인 부서 현황 중심 대시보드
+# [C] 부장 모드: 잔액 + 봉사부 전용 복지금 대시보드
 elif user_role == "부장":
     st.header("🧑‍💻 부처 업무")
     my_dept = st.selectbox("내 부처 선택", all_depts)
     d = cfg[cfg['항목'] == my_dept].iloc[0]
     rem = d['금액'] - d['지출액'] - d['벌금']
-    
-    # 부장 맞춤 대시보드
-    st.metric(f"💳 {my_dept} 가용 잔액", f"{int(rem):,}원", f"미납 벌금: {int(d['벌금']):,}원", delta_color="inverse")
+    st.metric(f"💳 {my_dept} 가용 운영비", f"{int(rem):,}원", f"미납 벌금: {int(d['벌금']):,}원", delta_color="inverse")
 
     if my_dept in DEPT_PASSWORDS:
         st.divider()
         if not st.session_state.get(f'auth_{my_dept}'):
-            sec_pw = st.text_input("🔐 2차 비밀번호", type="password")
+            sec_pw = st.text_input("🔐 2차 보안 비밀번호", type="password")
             if st.button("🔑 특수 행정 로그인"):
                 if sec_pw == DEPT_PASSWORDS[my_dept]:
                     st.session_state[f'auth_{my_dept}'] = True; st.rerun()
         else:
             st.success(f"🔓 {my_dept} 특수 권한 활성화")
-            target_dept = st.selectbox("대상 부처 선택", [d for d in cfg['항목'].tolist() if d not in ['학급총액', '복지금재원']])
             if my_dept == "봉사부":
+                st.markdown('<div class="welfare-card">', unsafe_allow_html=True)
                 wf = cfg[cfg['항목'] == '복지금재원']['금액'].values[0]
-                st.info(f"✨ 가용 복지금: {int(wf):,}원")
+                st.metric("✨ 현재 가용 복지금 (벌금 감면용)", f"{int(wf):,}원")
+                target_dept = st.selectbox("감면 대상 부처", [d for d in all_depts if d != "봉사부"])
                 red = st.number_input("감면할 벌금액", min_value=0, step=500)
                 if st.button("✨ 복지금 감면 수행"):
                     t_fine = cfg.loc[cfg['항목'] == target_dept, '벌금'].values[0]
@@ -167,22 +158,22 @@ elif user_role == "부장":
                         cfg.loc[cfg['항목'] == target_dept, '벌금'] -= float(red)
                         cfg.loc[cfg['항목'] == '복지금재원', '금액'] -= float(red)
                         save_data(cfg, st.session_state.requests)
-                        trigger_flash_effect("복지 감면 완료")
-                        st.rerun()
+                        trigger_flash_effect("복지 감면 성공"); st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
             elif my_dept in ["인성예절부", "선교부"]:
+                target_dept = st.selectbox("벌금 조정 대상", all_depts)
                 f_amt = st.number_input("벌금 조정 (+/-)", step=500)
                 if st.button("⚖️ 행정 처리 확정"):
                     cfg.loc[cfg['항목'] == target_dept, '벌금'] += float(f_amt)
                     save_data(cfg, st.session_state.requests)
-                    trigger_flash_effect("벌금 데이터 업데이트")
-                    st.rerun()
+                    trigger_flash_effect("벌금 데이터 기록 완료"); st.rerun()
             if st.button("🔓 권한 해제"):
                 st.session_state[f'auth_{my_dept}'] = False
                 trigger_flash_effect("세션 종료"); st.rerun()
 
     st.divider()
     with st.form("req_form"):
-        st.subheader("💰 지출 신청")
+        st.subheader("💰 운영비 지출 신청")
         item = st.text_input("품목")
         amt = st.number_input("신청 금액", min_value=0, max_value=int(max(0, rem)), step=100)
         if st.form_submit_button("🚀 예산 신청"):
@@ -192,7 +183,26 @@ elif user_role == "부장":
                 save_data(cfg, st.session_state.requests)
                 st.toast("신청 완료", icon="📧"); time.sleep(0.4); st.rerun()
 
-# 로그아웃 (이펙트 추가)
+# [D] 감사원 모드: 전체 현황 및 로그 감사
+elif user_role == "감사원":
+    st.header("🔍 감사원 행정업무")
+    
+    # 1. 전체 요약 대시보드
+    st.subheader("📊 부처별 재무 현황")
+    summary_df = cfg[cfg['항목'].isin(all_depts)].copy()
+    summary_df['가용잔액'] = summary_df['금액'] - summary_df['지출액'] - summary_df['벌금']
+    st.table(summary_df[['항목', '금액', '지출액', '벌금', '가용잔액']].style.format(precision=0))
+    
+    # 2. 실시간 지출 로그
+    st.divider()
+    st.subheader("📜 지출 및 신청 이력 (최근순)")
+    if not st.session_state.requests.empty:
+        log_display = st.session_state.requests.iloc[::-1] # 역순 표시
+        st.dataframe(log_display, use_container_width=True)
+    else:
+        st.write("기록된 지출 내역이 없습니다.")
+
+# 공통 로그아웃
 if st.sidebar.button("🔓 시스템 로그아웃"):
     for k in list(st.session_state.keys()): del st.session_state[k]
     trigger_flash_effect("로그아웃 완료"); st.rerun()
