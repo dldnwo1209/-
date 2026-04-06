@@ -75,7 +75,7 @@ all_depts = [d for d in cfg['항목'].tolist() if d not in ['학급총액', '복
 
 # 4. 역할별 행정 로직
 
-# [A] 교사 모드: 전체 예산 통제 및 월간 초기화
+# [A] 교사 모드: 전체 예산 통제 및 월간 완전 초기화
 if user_role == "교사":
     st.header("👨‍🏫 교사 관리")
     total_val = cfg[cfg['항목'] == '학급총액']['금액'].values[0]
@@ -88,25 +88,28 @@ if user_role == "교사":
         trigger_flash_effect("학급 총액 설정 완료")
         st.rerun()
 
-    # ✨ 추가: 월간 초기화 기능
+    # ✨ 월간 행정 완전 초기화 (배정액 포함)
     st.markdown('<div class="reset-box">', unsafe_allow_html=True)
-    st.subheader("🚨 월간 행정 데이터 초기화")
-    st.write("새로운 달의 예산 편성을 위해 **지출액, 벌금, 신청 로그**를 모두 삭제합니다.")
-    st.warning("이 작업은 되돌릴 수 없습니다. 모든 부서의 잔액이 배정액(금액) 상태로 복구됩니다.")
+    st.subheader("🚨 월간 행정 데이터 완전 초기화")
+    st.write("새로운 달을 위해 **배정 예산, 지출액, 벌금, 신청 로그**를 모두 삭제합니다.")
+    st.warning("이 작업은 되돌릴 수 없습니다. '학급 총 예산'을 제외한 모든 데이터가 0원이 됩니다.")
     
-    if st.button("⚠️ 모든 부서 데이터 초기화 수행"):
-        # 1. 지출액 및 벌금 0으로 초기화 (학급총액, 복지금재원 포함 전 항목)
-        cfg['지출액'] = 0.0
-        cfg['벌금'] = 0.0
-        # 2. 지출 신청 이력 삭제
+    if st.button("⚠️ 모든 데이터 초기화 수행 (배정액 포함)"):
+        # 학급총액을 제외한 모든 행의 금액, 지출액, 벌금을 0으로
+        mask = cfg['항목'] != '학급총액'
+        cfg.loc[mask, '금액'] = 0.0
+        cfg.loc[mask, '지출액'] = 0.0
+        cfg.loc[mask, '벌금'] = 0.0
+        
+        # 지출 신청 이력 삭제
         st.session_state.requests = pd.DataFrame(columns=['날짜', '부처명', '항목', '금액', '상태'])
-        # 3. 데이터 저장
+        
         save_data(cfg, st.session_state.requests)
-        trigger_flash_effect("새로운 달을 위해 모든 데이터가 초기화되었습니다!")
+        trigger_flash_effect("완전 초기화 완료! 이제 총무가 새 예산을 배정할 수 있습니다.")
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# [B] 총무 모드: 배정 잔액 집중형 대시보드
+# [B] 총무 모드
 elif user_role == "총무":
     st.header("👩‍💼 총무 행정 시스템")
     total_budget = cfg[cfg['항목'] == '학급총액']['금액'].values[0]
@@ -149,7 +152,7 @@ elif user_role == "총무":
             save_data(cfg, st.session_state.requests)
             trigger_flash_effect("지출 승인 완료"); st.rerun()
 
-# [C] 부장 모드: 잔액 + 봉사부 전용 복지금 대시보드
+# [C] 부장 모드
 elif user_role == "부장":
     st.header("🧑‍💻 부처 업무")
     my_dept = st.selectbox("내 부처 선택", all_depts)
@@ -203,7 +206,7 @@ elif user_role == "부장":
                 save_data(cfg, st.session_state.requests)
                 st.toast("신청 완료", icon="📧"); time.sleep(0.4); st.rerun()
 
-# [D] 감사원 모드: 전체 현황 및 로그 감사
+# [D] 감사원 모드
 elif user_role == "감사원":
     st.header("🔍 감사원 행정업무")
     st.subheader("📊 부처별 재무 현황")
