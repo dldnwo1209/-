@@ -4,16 +4,20 @@ import os
 import time
 from datetime import datetime
 
-# 1. 환경 설정 및 데이터 엔진
+# 1. 환경 설정 및 데이터 엔진 (부서명 수정: 인성예절부 -> 인권예절부)
 DB_CONFIG = 'config_v4.csv'
 LOG_FILE = 'transactions_v4.csv'
 PASSWORDS = {"교사": "1209", "총무": "1357", "부장": "2468", "감사원": "1111"}
-DEPT_PASSWORDS = {"인성예절부": "24278", "봉사부": "848", "선교부": "398"}
+DEPT_PASSWORDS = {"인권예절부": "29278", "봉사부": "848", "선교부": "398"}
 
 def load_data():
-    depts = ['여당(회장)', '야당(회장)', '감찰부(서기)', '총무부', '인성예절부', '환경부', '체육부', '교육부', '발명부', '선교부', '봉사부']
+    # 부서 리스트 업데이트
+    depts = ['여당(회장)', '야당(회장)', '감찰부(서기)', '총무부', '인권예절부', 
+             '환경부', '체육부', '교육부', '발명부', '선교부', '봉사부']
     if os.path.exists(DB_CONFIG):
         config_df = pd.read_csv(DB_CONFIG)
+        # 기존 데이터가 있다면 명칭 업데이트 처리 (하위 호환성)
+        config_df['항목'] = config_df['항목'].replace('인성예절부', '인권예절부')
     else:
         config_df = pd.DataFrame({
             '항목': ['학급총액', '복지금재원'] + depts,
@@ -25,6 +29,10 @@ def load_data():
         new_row = pd.DataFrame({'항목':['복지금재원'], '금액':[0.0], '지출액':[0.0], '벌금':[0.0]})
         config_df = pd.concat([config_df, new_row], ignore_index=True)
     req_df = pd.read_csv(LOG_FILE) if os.path.exists(LOG_FILE) else pd.DataFrame(columns=['날짜', '부처명', '항목', '금액', '상태'])
+    # 로그 데이터 내 부서명도 업데이트
+    if not req_df.empty:
+        req_df['부처명'] = req_df['부처명'].replace('인성예절부', '인권예절부')
+        
     return config_df, req_df
 
 def save_data(config_df, req_df):
@@ -75,7 +83,7 @@ all_depts = [d for d in cfg['항목'].tolist() if d not in ['학급총액', '복
 
 # 4. 역할별 행정 로직
 
-# [A] 교사 모드: 전체 예산 통제 및 월간 완전 초기화
+# [A] 교사 모드
 if user_role == "교사":
     st.header("👨‍🏫 교사 관리")
     total_val = cfg[cfg['항목'] == '학급총액']['금액'].values[0]
@@ -88,24 +96,16 @@ if user_role == "교사":
         trigger_flash_effect("학급 총액 설정 완료")
         st.rerun()
 
-    # ✨ 월간 행정 완전 초기화 (배정액 포함)
     st.markdown('<div class="reset-box">', unsafe_allow_html=True)
     st.subheader("🚨 월간 행정 데이터 완전 초기화")
-    st.write("새로운 달을 위해 **배정 예산, 지출액, 벌금, 신청 로그**를 모두 삭제합니다.")
-    st.warning("이 작업은 되돌릴 수 없습니다. '학급 총 예산'을 제외한 모든 데이터가 0원이 됩니다.")
-    
     if st.button("⚠️ 모든 데이터 초기화 수행 (배정액 포함)"):
-        # 학급총액을 제외한 모든 행의 금액, 지출액, 벌금을 0으로
         mask = cfg['항목'] != '학급총액'
         cfg.loc[mask, '금액'] = 0.0
         cfg.loc[mask, '지출액'] = 0.0
         cfg.loc[mask, '벌금'] = 0.0
-        
-        # 지출 신청 이력 삭제
         st.session_state.requests = pd.DataFrame(columns=['날짜', '부처명', '항목', '금액', '상태'])
-        
         save_data(cfg, st.session_state.requests)
-        trigger_flash_effect("완전 초기화 완료! 이제 총무가 새 예산을 배정할 수 있습니다.")
+        trigger_flash_effect("완전 초기화 완료!")
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -117,22 +117,21 @@ elif user_role == "총무":
     assigned_sum = cfg[cfg['항목'].isin(all_depts)]['금액'].sum()
     available = total_budget - assigned_sum - wf_fund
     
-    st.metric("⚖️ 배정 가능 잔액 (복지금 제외)", f"{int(available):,}원", f"총 예산: {int(total_budget):,}원")
+    st.metric("⚖️ 배정 가능 잔액", f"{int(available):,}원", f"총 예산: {int(total_budget):,}원")
     st.divider()
     
     target = st.selectbox("예산 편성 부처 선택", all_depts)
     if target == "봉사부":
         st.markdown('<div class="welfare-card">', unsafe_allow_html=True)
-        st.subheader("🍃 봉사부 운영비 및 복지금 배정")
+        st.subheader("🍃 봉사부 예산 배정")
         curr_op = cfg.loc[cfg['항목'] == '봉사부', '금액'].values[0]
-        v1 = st.number_input("봉사부 운영비 (부서 활동용)", value=int(curr_op), step=1000)
-        v2 = st.number_input("복지금 재원 (벌금 감면용 공금)", value=int(wf_fund), step=1000)
+        v1 = st.number_input("봉사부 운영비", value=int(curr_op), step=1000)
+        v2 = st.number_input("복지금 재원", value=int(wf_fund), step=1000)
         if st.button("🗳️ 봉사부 이중 예산 확정"):
             cfg.loc[cfg['항목'] == '봉사부', '금액'] = float(v1)
             cfg.loc[cfg['항목'] == '복지금재원', '금액'] = float(v2)
             save_data(cfg, st.session_state.requests)
-            trigger_flash_effect("봉사부 예산 편성 완료")
-            st.rerun()
+            trigger_flash_effect("봉사부 예산 편성 완료"); st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     else:
         curr_val = cfg.loc[cfg['항목'] == target, '금액'].values[0]
@@ -140,8 +139,7 @@ elif user_role == "총무":
         if st.button(f"📍 {target} 예산 저장"):
             cfg.loc[cfg['항목'] == target, '금액'] = float(new_val)
             save_data(cfg, st.session_state.requests)
-            trigger_flash_effect(f"{target} 예산 업데이트")
-            st.rerun()
+            trigger_flash_effect(f"{target} 예산 업데이트"); st.rerun()
 
     st.subheader("📝 결재 대기")
     pending = st.session_state.requests[st.session_state.requests['상태'] == '대기']
@@ -172,9 +170,9 @@ elif user_role == "부장":
             if my_dept == "봉사부":
                 st.markdown('<div class="welfare-card">', unsafe_allow_html=True)
                 wf = cfg[cfg['항목'] == '복지금재원']['금액'].values[0]
-                st.metric("✨ 현재 가용 복지금 (벌금 감면용)", f"{int(wf):,}원")
+                st.metric("✨ 가용 복지금", f"{int(wf):,}원")
                 target_dept = st.selectbox("감면 대상 부처", [d for d in all_depts if d != "봉사부"])
-                red = st.number_input("감면할 벌금액", min_value=0, step=500)
+                red = st.number_input("감면액", min_value=0, step=500)
                 if st.button("✨ 복지금 감면 수행"):
                     t_fine = cfg.loc[cfg['항목'] == target_dept, '벌금'].values[0]
                     if red <= wf and red <= t_fine:
@@ -183,7 +181,7 @@ elif user_role == "부장":
                         save_data(cfg, st.session_state.requests)
                         trigger_flash_effect("복지 감면 성공"); st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-            elif my_dept in ["인성예절부", "선교부"]:
+            elif my_dept in ["인권예절부", "선교부"]: # 수정됨
                 target_dept = st.selectbox("벌금 조정 대상", all_depts)
                 f_amt = st.number_input("벌금 조정 (+/-)", step=500)
                 if st.button("⚖️ 행정 처리 확정"):
@@ -219,8 +217,6 @@ elif user_role == "감사원":
     if not st.session_state.requests.empty:
         log_display = st.session_state.requests.iloc[::-1]
         st.dataframe(log_display, use_container_width=True)
-    else:
-        st.write("기록된 지출 내역이 없습니다.")
 
 # 공통 로그아웃
 if st.sidebar.button("🔓 시스템 로그아웃"):
